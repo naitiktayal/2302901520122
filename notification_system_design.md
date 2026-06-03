@@ -877,3 +877,43 @@ FAILED
 ## Conclusion
 
 The original implementation is slow, tightly coupled, and unreliable. A queue-based asynchronous architecture using PostgreSQL, Kafka/RabbitMQ, worker services, retries, and WebSocket notifications provides high performance, fault tolerance, scalability, and reliable delivery for 50,000 students during placement season.
+
+# Stage 6
+
+## Priority Inbox
+
+Priority Order:
+
+1. Placement
+2. Result
+3. Event
+
+If two notifications have the same type, the more recent notification gets higher priority.
+
+### Approach
+
+- Assign weight to each notification type.
+- Sort notifications by:
+    1. Weight (descending)
+    2. Timestamp (descending)
+- Display top 10 notifications.
+
+### Complexity
+
+Sorting: O(N log N)
+
+### Efficient Maintenance
+
+For continuous incoming notifications, a Min Heap (Priority Queue) of size 10 can be maintained.
+
+Complexity:
+- Insert: O(log 10)
+- Retrieval: O(1)
+
+This is more efficient than sorting the entire dataset repeatedly.
+
+### Files Submitted
+
+- PriorityInbox.java
+- output_screenshot.png
+- notification_system_design.md
