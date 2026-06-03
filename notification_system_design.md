@@ -671,3 +671,209 @@ For best performance:
 ## Conclusion
 
 The current approach of fetching notifications from the database on every page load does not scale well. A combination of Redis caching, WebSocket-based real-time delivery, pagination, indexing, and asynchronous processing provides a scalable and high-performance notification system while maintaining a good user experience.
+
+
+# Stage 5
+
+## Problems in Current Implementation
+
+Given Pseudocode:
+
+```text id="p1"
+function notify_all(student_ids, message):
+    for student_id in student_ids:
+        send_email(student_id, message)
+        save_to_db(student_id, message)
+        push_to_app(student_id, message)
+```
+
+### Shortcomings
+
+1. Sequential Processing
+
+The system processes one student at a time.
+
+For 50,000 students, this will be extremely slow.
+
+---
+
+2. No Fault Tolerance
+
+If `send_email()` fails for a student, the process may continue without recording the failure properly.
+
+---
+
+3. No Retry Mechanism
+
+Failed emails are simply lost.
+
+The 200 students whose email failed will never receive the notification.
+
+---
+
+4. Tight Coupling
+
+Email sending, database storage, and app notification are executed together.
+
+Failure in one step can affect the entire flow.
+
+---
+
+5. Poor Scalability
+
+The application server handles all work directly.
+
+Large traffic spikes can overwhelm the system.
+
+---
+
+## What Happens When Email Fails For 200 Students?
+
+With the current design:
+
+* Notification may already be saved for some students.
+* Some students may receive in-app notifications.
+* 200 students will miss email notifications.
+* System has no way to automatically retry.
+
+This creates inconsistent data and poor reliability.
+
+---
+
+## Recommended Design
+
+Use:
+
+* PostgreSQL
+* Message Queue (Kafka/RabbitMQ)
+* Worker Services
+* Retry Mechanism
+* WebSocket
+
+### Architecture Flow
+
+1. HR clicks Notify All.
+2. Notification is stored in database.
+3. Notification jobs are published to queue.
+4. Multiple workers process jobs in parallel.
+5. Email service sends emails.
+6. WebSocket pushes in-app notifications.
+7. Failed jobs are retried automatically.
+
+---
+
+## Revised Pseudocode
+
+```text id="p2"
+function notify_all(student_ids, message):
+
+    notification_id = create_notification_batch(message)
+
+    for student_id in student_ids:
+
+        save_to_db(
+            student_id,
+            notification_id,
+            message,
+            status = "PENDING"
+        )
+
+        publish_to_queue(
+            student_id,
+            notification_id,
+            message
+        )
+```
+
+### Worker Service
+
+```text id="p3"
+function process_notification(job):
+
+    try:
+
+        send_email(job.student_id, job.message)
+
+        push_to_app(job.student_id, job.message)
+
+        update_status(
+            job.notification_id,
+            job.student_id,
+            "SUCCESS"
+        )
+
+    except Exception:
+
+        retry(job)
+
+        if retry_limit_exceeded:
+            update_status(
+                job.notification_id,
+                job.student_id,
+                "FAILED"
+            )
+```
+
+---
+
+## Should Saving to DB and Sending Email Happen Together?
+
+No.
+
+They should be separated.
+
+### Reason
+
+Saving notifications to the database is the source of truth.
+
+Once stored successfully:
+
+* Notification history is preserved.
+* User can view it later.
+* Retry mechanisms can work.
+* Failures can be tracked.
+
+Email delivery is an external operation and may fail due to:
+
+* SMTP issues
+* Network problems
+* Rate limits
+* Third-party outages
+
+Therefore email sending should happen asynchronously after successful database storage.
+
+---
+
+## Benefits of the New Design
+
+### Reliability
+
+Failed emails can be retried automatically.
+
+### Scalability
+
+Multiple workers can process thousands of notifications simultaneously.
+
+### Faster Response
+
+HR receives immediate confirmation without waiting for 50,000 emails.
+
+### Fault Isolation
+
+Email failures do not affect database storage.
+
+### Monitoring
+
+Notification status can be tracked as:
+
+```text id="p4"
+PENDING
+SUCCESS
+FAILED
+```
+
+---
+
+## Conclusion
+
+The original implementation is slow, tightly coupled, and unreliable. A queue-based asynchronous architecture using PostgreSQL, Kafka/RabbitMQ, worker services, retries, and WebSocket notifications provides high performance, fault tolerance, scalability, and reliable delivery for 50,000 students during placement season.
