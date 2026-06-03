@@ -486,3 +486,188 @@ This index improves filtering of placement notifications and date-based searches
 ## Conclusion
 
 The original query is correct but becomes slow at large scale due to scanning and sorting millions of records. A composite index on (studentID, isRead, createdAt DESC) greatly improves performance. Adding indexes on every column is not recommended because it increases storage and slows write operations. Proper indexing based on query usage is the most effective solution.
+
+
+# Stage 4
+
+## Problem Statement
+
+Currently, notifications are fetched from the database on every page load for every student.
+
+With:
+
+* 50,000 students
+* 5,000,000+ notifications
+
+this approach generates a large number of repeated database queries, causing high database load, increased response time, and poor user experience.
+
+---
+
+## Proposed Solutions
+
+### 1. Caching Layer (Recommended)
+
+Introduce a cache such as Redis between the application and the database.
+
+### Working
+
+1. User requests notifications.
+2. Application checks Redis cache.
+3. If data exists, return cached data.
+4. If data does not exist, fetch from PostgreSQL and store in Redis.
+
+### Benefits
+
+* Very fast response time.
+* Reduces database load significantly.
+* Handles large traffic efficiently.
+
+### Tradeoffs
+
+* Additional infrastructure required.
+* Cache invalidation must be handled carefully.
+* Slight increase in system complexity.
+
+---
+
+## 2. Real-Time Notifications Using WebSocket
+
+Instead of fetching notifications on every page refresh, establish a persistent WebSocket connection.
+
+### Working
+
+1. User logs in.
+2. WebSocket connection is established.
+3. Server pushes new notifications instantly.
+4. Frontend updates automatically.
+
+### Benefits
+
+* Real-time updates.
+* Better user experience.
+* Reduces repeated API calls.
+
+### Tradeoffs
+
+* More complex implementation.
+* Requires connection management.
+* Higher memory usage for active connections.
+
+---
+
+## 3. Pagination
+
+Do not load all notifications at once.
+
+### Example
+
+```http
+GET /api/notifications?page=0&size=20
+```
+
+Only the latest 20 notifications are returned.
+
+### Benefits
+
+* Smaller query result sets.
+* Faster API response.
+* Lower memory usage.
+
+### Tradeoffs
+
+* Additional API logic.
+* Users may need multiple requests for older notifications.
+
+---
+
+## 4. Database Index Optimization
+
+Create indexes on frequently searched columns.
+
+```sql
+CREATE INDEX idx_notifications_student_read_created
+ON notifications(studentID, isRead, createdAt DESC);
+```
+
+### Benefits
+
+* Faster searching.
+* Faster sorting.
+
+### Tradeoffs
+
+* Additional storage usage.
+* Slower write operations.
+
+---
+
+## 5. Notification Count API
+
+Instead of loading all notifications on every page load, first load only the unread count.
+
+### Example
+
+```http
+GET /api/notifications/unread-count
+```
+
+Response:
+
+```json
+{
+  "unreadCount": 5
+}
+```
+
+Load full notifications only when the user opens the notification panel.
+
+### Benefits
+
+* Reduces unnecessary database queries.
+* Faster page loading.
+
+### Tradeoffs
+
+* Additional API endpoint required.
+
+---
+
+## 6. Background Processing with Message Queue
+
+Use Kafka or RabbitMQ for notification delivery.
+
+### Working
+
+1. Event occurs.
+2. Notification is pushed to queue.
+3. Worker processes notification.
+4. Notification is stored and delivered.
+
+### Benefits
+
+* Highly scalable.
+* Handles traffic spikes.
+
+### Tradeoffs
+
+* More infrastructure.
+* Increased operational complexity.
+
+---
+
+## Recommended Architecture
+
+For best performance:
+
+1. PostgreSQL as primary storage.
+2. Redis for caching.
+3. WebSocket for real-time delivery.
+4. Pagination for notification history.
+5. Proper indexing.
+6. Kafka/RabbitMQ for large-scale processing.
+
+---
+
+## Conclusion
+
+The current approach of fetching notifications from the database on every page load does not scale well. A combination of Redis caching, WebSocket-based real-time delivery, pagination, indexing, and asynchronous processing provides a scalable and high-performance notification system while maintaining a good user experience.
