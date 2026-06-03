@@ -330,3 +330,159 @@ For real-time notifications:
 4. Notification remains available for future retrieval through REST APIs.
 
 This approach provides both reliability and real-time delivery.
+
+# Stage 3
+
+## Query Analysis
+
+Given Query:
+
+```sql
+SELECT * FROM notifications
+WHERE studentID = 1042 AND isRead = false
+ORDER BY createdAt DESC;
+```
+
+### Is the Query Accurate?
+
+Yes, the query is logically correct.
+
+It retrieves all unread notifications of a specific student (studentID = 1042) and sorts them by creation time in descending order so that the latest notifications appear first.
+
+---
+
+## Why is the Query Slow?
+
+Current Database Size:
+
+* Students: 50,000
+* Notifications: 5,000,000
+
+Without proper indexing, the database may perform a full table scan.
+
+Steps performed:
+
+1. Scan millions of rows.
+2. Filter rows where studentID = 1042.
+3. Filter rows where isRead = false.
+4. Sort the matching rows by createdAt DESC.
+
+This results in high I/O cost and increased execution time.
+
+---
+
+## Recommended Improvement
+
+Create a composite index:
+
+```sql
+CREATE INDEX idx_notifications_student_read_created
+ON notifications(studentID, isRead, createdAt DESC);
+```
+
+### Benefits
+
+* Directly locates notifications for a specific student.
+* Filters unread notifications efficiently.
+* Uses the index ordering for sorting.
+* Avoids expensive table scans.
+
+---
+
+## Computation Cost
+
+### Without Index
+
+Approximate Cost:
+
+```text
+O(N)
+```
+
+Where N = 5,000,000 rows.
+
+The database may inspect a large portion of the table.
+
+### With Composite Index
+
+Approximate Cost:
+
+```text
+O(log N + K)
+```
+
+Where:
+
+* N = total notifications
+* K = matching unread notifications
+
+Performance improves significantly because only relevant index entries are scanned.
+
+---
+
+## Should We Add Indexes on Every Column?
+
+No.
+
+Adding indexes on every column is generally not a good practice.
+
+### Problems
+
+1. Increased storage usage.
+2. Slower INSERT operations.
+3. Slower UPDATE operations.
+4. Slower DELETE operations.
+5. Unused indexes waste resources.
+
+### Best Practice
+
+Create indexes only on:
+
+* Frequently filtered columns
+* Frequently sorted columns
+* Join columns
+* High-value search columns
+
+Indexes should be based on query patterns rather than adding them everywhere.
+
+---
+
+## Query to Find Students Who Received Placement Notifications in Last 7 Days
+
+### Using JOIN
+
+```sql
+SELECT DISTINCT s.studentID,
+                s.name
+FROM students s
+JOIN notifications n
+ON s.studentID = n.studentID
+WHERE n.notificationType = 'Placement'
+AND n.createdAt >= NOW() - INTERVAL '7 days';
+```
+
+### Alternative Query
+
+```sql
+SELECT DISTINCT studentID
+FROM notifications
+WHERE notificationType = 'Placement'
+AND createdAt >= NOW() - INTERVAL '7 days';
+```
+
+---
+
+## Recommended Index for Placement Query
+
+```sql
+CREATE INDEX idx_notifications_type_date
+ON notifications(notificationType, createdAt);
+```
+
+This index improves filtering of placement notifications and date-based searches.
+
+---
+
+## Conclusion
+
+The original query is correct but becomes slow at large scale due to scanning and sorting millions of records. A composite index on (studentID, isRead, createdAt DESC) greatly improves performance. Adding indexes on every column is not recommended because it increases storage and slows write operations. Proper indexing based on query usage is the most effective solution.
